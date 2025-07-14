@@ -8,7 +8,6 @@ plugins {
 android {
     namespace = "com.example.voteapp"
     compileSdk = flutter.compileSdkVersion
-   
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -37,3 +36,6 @@ android {
 flutter {
     source = "../.."
 }
+
+// ✅ Required for Firebase — ADD THIS LINE at the bottom
+apply(plugin = "com.google.gms.google-services")
