@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'auth_service.dart';
-import 'home_page.dart';
+import 'user_model.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class LoginPage extends StatefulWidget {
-  final VoidCallback? onSignupTap;
-  const LoginPage({Key? key, this.onSignupTap}) : super(key: key);
+class SignupPage extends StatefulWidget {
+  final VoidCallback? onLoginTap;
+  const SignupPage({Key? key, this.onLoginTap}) : super(key: key);
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<SignupPage> createState() => _SignupPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _SignupPageState extends State<SignupPage> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _loading = false;
   String? _error;
 
-  Future<void> _login() async {
+  Future<void> _signup() async {
     if (_emailController.text.trim().isEmpty || _passwordController.text.trim().isEmpty) {
       setState(() {
         _error = 'Please enter both email and password';
@@ -25,55 +25,114 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    setState(() { 
-      _loading = true; 
-      _error = null; 
+    setState(() {
+      _loading = true;
+      _error = null;
     });
 
     try {
-      // Try login with multiple attempts if needed
+      final email = _emailController.text.trim();
+      final password = _passwordController.text.trim();
+      
+      print('Attempting to sign up with email: $email'); // Debug print
+      
+      // Validate password length
+      if (password.length < 6) {
+        setState(() {
+          _loading = false;
+          _error = 'Password must be at least 6 characters long';
+        });
+        return;
+      }
+      
+      // Try signup with multiple attempts if needed
       Map<String, dynamic> result;
       int attempts = 0;
       do {
-        result = await AuthService.signIn(
-          _emailController.text.trim(),
-          _passwordController.text.trim(),
-        );
+        result = await AuthService.signUp(email, password);
         if (result['user'] != null) break;
         attempts++;
         if (attempts < 3) await Future.delayed(Duration(milliseconds: 500 * attempts));
       } while (attempts < 3 && result['error']?.toString().contains('PigeonUserDetails') == true);
-
+      
       if (result['error'] != null) {
+        print('Sign up failed - Detailed error: ${result['error']}'); // More detailed debug print
         setState(() {
           _loading = false;
-          _error = result['error'];
+          _error = result['error'] as String;
+        });
+        return;
+      }
+      
+      if (result['user'] == null) {
+        print('Sign up failed - User is null but no error provided'); // Debug edge case
+        setState(() {
+          _loading = false;
+          _error = 'Registration failed. Please try again.';
         });
         return;
       }
 
       final user = result['user'] as User;
-      
-      // Fetch user data from Firestore as UserModel
-      final userModel = await AuthService.getUserModel(user.uid);
-      if (userModel != null) {
-        print('Logged in user: ${userModel.email}');
-        // Navigate to HomePage
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
-      } else {
+
+      print('User created successfully, creating UserModel...'); // Debug print
+      final userModel = UserModel(
+        uid: user.uid,
+        email: user.email ?? '',
+        createdAt: DateTime.now(),
+      );
+
+      print('Saving user model to Firestore...'); // Debug print
+      try {
+        // Create the user document in Firestore
+        await AuthService.saveUserModel(userModel);
+        print('User model saved successfully'); // Debug print
+        
+        // Clear loading state and navigate to login
         setState(() {
           _loading = false;
-          _error = 'Failed to load user data';
+          _error = null;
         });
+        
+        if (widget.onLoginTap != null) {
+          widget.onLoginTap!();
+        }
+      } catch (firestoreError) {
+        print('Error saving user model: $firestoreError'); // Debug print
+        
+        // If it's a permission error, we should handle it differently
+        if (firestoreError.toString().contains('permission-denied')) {
+          // Delete the Firebase Auth user since we couldn't save their data
+          try {
+            await FirebaseAuth.instance.currentUser?.delete();
+          } catch (e) {
+            print('Error deleting incomplete user: $e');
+          }
+          
+          setState(() {
+            _loading = false;
+            _error = 'Unable to complete signup. Please try again later.';
+          });
+        } else {
+          setState(() {
+            _loading = false;
+            _error = 'Account created but failed to save additional data. Please try again.';
+          });
+        }
       }
     } catch (e) {
-      print('Login error: $e');
+      print('Signup error: $e'); // Debug print
       setState(() {
         _loading = false;
-        _error = 'An error occurred during login';
+        String errorMessage = 'An unknown error occurred';
+        if (e.toString().contains('email-already-in-use')) {
+          errorMessage = 'This email is already registered';
+        } else if (e.toString().contains('weak-password')) {
+          errorMessage = 'Password is too weak (at least 6 characters)';
+        } else if (e.toString().contains('invalid-email')) {
+          errorMessage = 'Invalid email address';
+        }
+        _error = errorMessage;
       });
     }
   }
@@ -86,7 +145,7 @@ class _LoginPageState extends State<LoginPage> {
         height: double.infinity,
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF6D5DF6), Color(0xFF46A0FC)],
+            colors: [Color(0xFF46A0FC), Color(0xFF6D5DF6)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -102,14 +161,14 @@ class _LoginPageState extends State<LoginPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.lock, size: 64, color: Color(0xFF6D5DF6)),
+                    const Icon(Icons.person_add, size: 64, color: Color(0xFF46A0FC)),
                     const SizedBox(height: 16),
                     const Text(
-                      'Login',
+                      'Sign Up',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF6D5DF6),
+                        color: Color(0xFF46A0FC),
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -140,22 +199,22 @@ class _LoginPageState extends State<LoginPage> {
                       width: double.infinity,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF6D5DF6),
+                          backgroundColor: const Color(0xFF46A0FC),
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: _loading ? null : _login,
+                        onPressed: _loading ? null : _signup,
                         child: _loading
                             ? const CircularProgressIndicator(color: Colors.white)
-                            : const Text('Login', style: TextStyle(fontSize: 18)),
+                            : const Text('Sign Up', style: TextStyle(fontSize: 18)),
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextButton(
-                      onPressed: widget.onSignupTap,
-                      child: const Text("Don't have an account? Sign up"),
+                      onPressed: widget.onLoginTap,
+                      child: const Text("Already have an account? Login"),
                     ),
                   ],
                 ),
