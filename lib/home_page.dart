@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'models/election_model.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({Key? key}) : super(key: key);
@@ -18,9 +21,10 @@ class HomePage extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.person_outline_rounded),
-            onPressed: () {
-              // TODO: Implement profile action
+            icon: Icon(Icons.logout),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              Navigator.pushReplacementNamed(context, '/login');
             },
           ),
         ],
@@ -33,44 +37,83 @@ class HomePage extends StatelessWidget {
             end: Alignment.center,
           ),
         ),
-        child: ListView(
-          padding: EdgeInsets.all(16),
-          children: [
-            _buildWelcomeCard(),
-            SizedBox(height: 24),
-            _buildSectionTitle('Active Polls'),
-            SizedBox(height: 16),
-            _buildPollCard(
-              'Student Council Election',
-              'Cast your vote for the next student council president',
-              '2 days left',
-              0.6,
-            ),
-            SizedBox(height: 16),
-            _buildPollCard(
-              'Cafeteria Menu Vote',
-              'Help us decide next week\'s special menu items',
-              '5 hours left',
-              0.8,
-            ),
-            SizedBox(height: 24),
-            _buildSectionTitle('Recent Results'),
-            SizedBox(height: 16),
-            _buildResultCard(
-              'Library Hours Extension',
-              'Proposal to extend library hours during exam week',
-              'Passed with 75% votes',
-            ),
-          ],
+        child: StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('elections')
+              .where('isActive', isEqualTo: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(child: Text('Error: ${snapshot.error}'));
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Center(child: CircularProgressIndicator());
+            }
+
+            final elections = snapshot.data?.docs ?? [];
+            final activeElections = elections.where((doc) {
+              final election = ElectionModel.fromMap({
+                'id': doc.id,
+                ...doc.data() as Map<String, dynamic>
+              });
+              return DateTime.now().isBefore(election.endDate);
+            }).toList();
+
+            final completedElections = elections.where((doc) {
+              final election = ElectionModel.fromMap({
+                'id': doc.id,
+                ...doc.data() as Map<String, dynamic>
+              });
+              return DateTime.now().isAfter(election.endDate);
+            }).toList();
+
+            return ListView(
+              padding: EdgeInsets.all(16),
+              children: [
+                _buildWelcomeCard(),
+                SizedBox(height: 24),
+                _buildSectionTitle('Active Elections'),
+                SizedBox(height: 16),
+                if (activeElections.isEmpty)
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'No active elections at the moment',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 16,
+                      ),
+                    ),
+                  )
+                else
+                  ...activeElections.map((doc) {
+                    final election = ElectionModel.fromMap({
+                      'id': doc.id,
+                      ...doc.data() as Map<String, dynamic>
+                    });
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: _buildElectionCard(context, election),
+                    );
+                  }),
+                SizedBox(height: 24),
+                _buildSectionTitle('Completed Elections'),
+                SizedBox(height: 16),
+                ...completedElections.map((doc) {
+                  final election = ElectionModel.fromMap({
+                    'id': doc.id,
+                    ...doc.data() as Map<String, dynamic>
+                  });
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: 16),
+                    child: _buildCompletedElectionCard(election),
+                  );
+                }),
+              ],
+            );
+          },
         ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // TODO: Implement create poll action
-        },
-        backgroundColor: Color(0xFF2E3192),
-        icon: Icon(Icons.add),
-        label: Text('Create Poll'),
       ),
     );
   }
@@ -137,7 +180,18 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildPollCard(String title, String description, String timeLeft, double progress) {
+  Widget _buildElectionCard(BuildContext context, ElectionModel election) {
+    final now = DateTime.now();
+    final timeLeft = election.endDate.difference(now);
+    String timeLeftString;
+    if (timeLeft.inDays > 0) {
+      timeLeftString = '${timeLeft.inDays} days left';
+    } else if (timeLeft.inHours > 0) {
+      timeLeftString = '${timeLeft.inHours} hours left';
+    } else {
+      timeLeftString = '${timeLeft.inMinutes} minutes left';
+    }
+
     return Card(
       elevation: 4,
       shadowColor: Colors.black12,
@@ -150,7 +204,7 @@ class HomePage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              title,
+              election.title,
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -159,37 +213,52 @@ class HomePage extends StatelessWidget {
             ),
             SizedBox(height: 8),
             Text(
-              description,
+              election.description,
               style: TextStyle(
                 color: Colors.grey[600],
                 fontSize: 14,
               ),
             ),
             SizedBox(height: 16),
-            LinearProgressIndicator(
-              value: progress,
-              backgroundColor: Colors.grey[200],
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1BFFFF)),
+            Text(
+              'Options:',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF2E3192),
+              ),
             ),
-            SizedBox(height: 8),
+            ...election.options.map((option) => Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4),
+                  child: Text('• $option'),
+                )),
+            SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  timeLeft,
+                  timeLeftString,
                   style: TextStyle(
                     color: Color(0xFF2E3192),
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                TextButton(
+                ElevatedButton(
                   onPressed: () {
-                    // TODO: Implement vote action
+                    // TODO: Navigate to voting page
+                    // Navigator.push(
+                    //   context,
+                    //   MaterialPageRoute(
+                    //     builder: (context) => VotingPage(election: election),
+                    //   ),
+                    // );
                   },
-                  child: Text('VOTE NOW'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Color(0xFF2E3192),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF2E3192),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
+                  child: Text('VOTE NOW'),
                 ),
               ],
             ),
@@ -199,7 +268,17 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildResultCard(String title, String description, String result) {
+  Widget _buildCompletedElectionCard(ElectionModel election) {
+    // Calculate the winning option
+    String? winningOption;
+    int maxVotes = 0;
+    election.votes.forEach((option, votes) {
+      if (votes > maxVotes) {
+        maxVotes = votes;
+        winningOption = option;
+      }
+    });
+
     return Card(
       elevation: 4,
       shadowColor: Colors.black12,
@@ -219,32 +298,35 @@ class HomePage extends StatelessWidget {
                   size: 20,
                 ),
                 SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                Expanded(
+                  child: Text(
+                    election.title,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
                 ),
               ],
             ),
             SizedBox(height: 8),
             Text(
-              description,
+              election.description,
               style: TextStyle(
                 color: Colors.grey[600],
                 fontSize: 14,
               ),
             ),
             SizedBox(height: 8),
-            Text(
-              result,
-              style: TextStyle(
-                color: Colors.green,
-                fontWeight: FontWeight.w500,
+            if (winningOption != null)
+              Text(
+                'Winner: $winningOption',
+                style: TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
           ],
         ),
       ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'auth_service.dart';
 import 'home_page.dart';
+import 'admin/admin_dashboard.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback? onSignupTap;
@@ -31,7 +32,6 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      // Try login with multiple attempts if needed
       Map<String, dynamic> result;
       int attempts = 0;
       do {
@@ -58,11 +58,24 @@ class _LoginPageState extends State<LoginPage> {
       final userModel = await AuthService.getUserModel(user.uid);
       if (userModel != null) {
         print('Logged in user: ${userModel.email}');
-        // Navigate to HomePage
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
+        
+        // Check if user is admin
+        if (userModel.isAdmin) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AdminDashboard(user: userModel),
+            ),
+          );
+        } else {
+          // Regular user flow
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const HomePage(),
+            ),
+          );
+        }
       } else {
         setState(() {
           _loading = false;

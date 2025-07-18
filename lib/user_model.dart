@@ -4,8 +4,14 @@ class UserModel {
   final String uid;
   final String email;
   final DateTime createdAt;
+  final bool isAdmin; // Add this field
 
-  UserModel({required this.uid, required this.email, required this.createdAt});
+  UserModel({
+    required this.uid,
+    required this.email,
+    required this.createdAt,
+    this.isAdmin = false, // Default to false
+  });
 
   // Convert UserModel to a map for Firestore
   Map<String, dynamic> toMap() {
@@ -13,6 +19,7 @@ class UserModel {
       'uid': uid,
       'email': email,
       'createdAt': createdAt,
+      'isAdmin': isAdmin,
     };
   }
 
@@ -22,6 +29,7 @@ class UserModel {
       uid: map['uid'] as String,
       email: map['email'] as String,
       createdAt: (map['createdAt'] as Timestamp).toDate(),
+      isAdmin: map['isAdmin'] as bool? ?? false,
     );
   }
-} 
+}
