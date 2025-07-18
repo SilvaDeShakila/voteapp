@@ -2,12 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'models/election_model.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'auth_service.dart';
+import 'user_model.dart';
+import 'profile_page.dart'; // Import the ProfilePage
 
 class HomePage extends StatelessWidget {
   const HomePage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final User? currentUser = FirebaseAuth.instance.currentUser;
+
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
@@ -20,13 +25,82 @@ class HomePage extends StatelessWidget {
           ),
         ),
         actions: [
-          IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.pushReplacementNamed(context, '/login');
+          FutureBuilder<UserModel?>(
+            future: AuthService.getUserModel(currentUser?.uid ?? ''),
+            builder: (context, snapshot) {
+              return PopupMenuButton<String>(
+                icon: CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: Icon(
+                    Icons.person,
+                    color: Color(0xFF2E3192),
+                  ),
+                ),
+                offset: Offset(0, 56),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                itemBuilder: (BuildContext context) => [
+                  PopupMenuItem<String>(
+                    child: ListTile(
+                      leading: Icon(Icons.person_outline),
+                      title: Text(snapshot.data?.email ?? 'Loading...'),
+                      subtitle: Text('User Profile'),
+                    ),
+                    value: 'profile',
+                  ),
+                  PopupMenuItem<String>(
+                    child: ListTile(
+                      leading: Icon(Icons.history),
+                      title: Text('Voting History'),
+                    ),
+                    value: 'history',
+                  ),
+                  PopupMenuItem<String>(
+                    child: ListTile(
+                      leading: Icon(Icons.settings),
+                      title: Text('Settings'),
+                    ),
+                    value: 'settings',
+                  ),
+                  PopupMenuDivider(),
+                  PopupMenuItem<String>(
+                    child: ListTile(
+                      leading: Icon(Icons.logout, color: Colors.red),
+                      title: Text(
+                        'Logout',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                    value: 'logout',
+                  ),
+                ],
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'logout':
+                      await FirebaseAuth.instance.signOut();
+                      Navigator.pushReplacementNamed(context, '/login');
+                      break;
+                    case 'profile':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ProfilePage(),
+                        ),
+                      );
+                      break;
+                    case 'history':
+                      // TODO: Navigate to voting history
+                      break;
+                    case 'settings':
+                      // TODO: Navigate to settings
+                      break;
+                  }
+                },
+              );
             },
           ),
+          SizedBox(width: 8),
         ],
       ),
       body: Container(
