@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/election_model.dart';
 import 'create_election_page.dart';
 import '../user_model.dart';
+import 'election_details_page.dart';
 
 class AdminDashboard extends StatelessWidget {
   final UserModel user;
@@ -204,9 +205,16 @@ class AdminDashboard extends StatelessWidget {
                 ),
                 TextButton(
                   onPressed: () {
-                    // TODO: Add election management
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ElectionDetailsPage(
+                          election: election,
+                        ),
+                      ),
+                    );
                   },
-                  child: Text('MANAGE'),
+                  child: Text('VIEW DETAILS'),
                 ),
               ],
             ),

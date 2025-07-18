@@ -31,47 +31,64 @@ class _VotingPageState extends State<VotingPage> {
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception('User not authenticated');
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
 
-      // Transaction to update votes atomically
+      // Check if election is still active
+      final electionDoc = await FirebaseFirestore.instance
+          .collection('elections')
+          .doc(widget.election.id)
+          .get();
+
+      if (!electionDoc.exists) {
+        throw Exception('Election not found');
+      }
+
+      final election = ElectionModel.fromMap({
+        'id': electionDoc.id,
+        ...electionDoc.data() as Map<String, dynamic>
+      });
+
+      if (!election.isActive || DateTime.now().isAfter(election.endDate)) {
+        throw Exception('This election has ended');
+      }
+
+      // Check if user has already voted
+      final voterDoc = await FirebaseFirestore.instance
+          .collection('elections')
+          .doc(widget.election.id)
+          .collection('voters')
+          .doc(user.uid)
+          .get();
+
+      if (voterDoc.exists) {
+        throw Exception('You have already voted in this election');
+      }
+
+      // Use a transaction to update votes atomically
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        // Get the latest election data
-        final electionRef = FirebaseFirestore.instance
-            .collection('elections')
-            .doc(widget.election.id);
-        final electionDoc = await transaction.get(electionRef);
-
-        if (!electionDoc.exists) {
-          throw Exception('Election not found');
-        }
-
-        // Check if user has already voted
-        final voterRef = FirebaseFirestore.instance
+        // Record the vote in voters subcollection first
+        await FirebaseFirestore.instance
             .collection('elections')
             .doc(widget.election.id)
             .collection('voters')
-            .doc(user.uid);
-        final voterDoc = await transaction.get(voterRef);
-
-        if (voterDoc.exists) {
-          throw Exception('You have already voted in this election');
-        }
-
-        // Update the votes
-        final currentVotes = Map<String, int>.from(electionDoc.data()?['votes'] ?? {});
-        currentVotes[_selectedOption!] = (currentVotes[_selectedOption!] ?? 0) + 1;
-
-        // Update election document with new vote count
-        transaction.update(electionRef, {'votes': currentVotes});
-
-        // Record that this user has voted
-        transaction.set(voterRef, {
+            .doc(user.uid)
+            .set({
           'timestamp': FieldValue.serverTimestamp(),
           'option': _selectedOption,
         });
+
+        // Then update the vote count
+        final updatedVotes = Map<String, int>.from(election.votes);
+        updatedVotes[_selectedOption!] = (updatedVotes[_selectedOption!] ?? 0) + 1;
+
+        await FirebaseFirestore.instance
+            .collection('elections')
+            .doc(widget.election.id)
+            .update({'votes': updatedVotes});
       });
 
-      // Show success message and pop back
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Vote cast successfully!'),
