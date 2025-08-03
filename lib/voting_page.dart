@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:local_auth/local_auth.dart';
 import 'models/election_model.dart';
+import 'biometric_service.dart';
 
 class VotingPage extends StatefulWidget {
   final ElectionModel election;
@@ -14,12 +16,60 @@ class VotingPage extends StatefulWidget {
 class _VotingPageState extends State<VotingPage> {
   String? _selectedOption;
   bool _isLoading = false;
+  bool _isCheckingBiometrics = false;
   String? _error;
+  bool _biometricAvailable = false;
+  List<BiometricType> _availableBiometrics = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometricAvailability();
+  }
+
+  Future<void> _checkBiometricAvailability() async {
+    setState(() {
+      _isCheckingBiometrics = true;
+    });
+
+    try {
+      final isAvailable = await BiometricService.isBiometricAvailable();
+      final biometrics = await BiometricService.getAvailableBiometrics();
+      
+      setState(() {
+        _biometricAvailable = isAvailable;
+        _availableBiometrics = biometrics;
+        _isCheckingBiometrics = false;
+      });
+    } catch (e) {
+      setState(() {
+        _biometricAvailable = false;
+        _isCheckingBiometrics = false;
+      });
+    }
+  }
 
   Future<void> _castVote() async {
     if (_selectedOption == null) {
       setState(() {
         _error = 'Please select an option to vote';
+      });
+      return;
+    }
+
+    // Check biometric availability first
+    if (!_biometricAvailable) {
+      setState(() {
+        _error = 'Biometric authentication is not available on this device';
+      });
+      return;
+    }
+
+    // Perform biometric authentication
+    final authenticated = await BiometricService.authenticate();
+    if (!authenticated) {
+      setState(() {
+        _error = 'Biometric authentication failed. Please try again.';
       });
       return;
     }
@@ -146,6 +196,97 @@ class _VotingPageState extends State<VotingPage> {
               ),
             ),
             SizedBox(height: 24),
+            
+            // Biometric status card
+            if (_isCheckingBiometrics)
+              Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(width: 16),
+                      Text('Checking biometric availability...'),
+                    ],
+                  ),
+                ),
+              )
+            else if (_biometricAvailable)
+              Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.fingerprint,
+                        color: Colors.green,
+                        size: 24,
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Biometric Authentication Available',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                            Text(
+                              BiometricService.getBiometricTypeString(_availableBiometrics),
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        color: Colors.red,
+                        size: 24,
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Biometric authentication not available',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            
+            SizedBox(height: 24),
             Text(
               'Select your choice:',
               style: TextStyle(
@@ -187,22 +328,87 @@ class _VotingPageState extends State<VotingPage> {
                 ),
               ),
             SizedBox(height: 24),
+            
+            // Main voting button with biometric authentication
             ElevatedButton(
-              onPressed: _isLoading ? null : _castVote,
+              onPressed: (_isLoading || !_biometricAvailable || _selectedOption == null) ? null : _castVote,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Color(0xFF2E3192),
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.all(20),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                 ),
+                elevation: 8,
               ),
               child: _isLoading
                   ? CircularProgressIndicator(color: Colors.white)
-                  : Text(
-                      'Cast Vote',
-                      style: TextStyle(fontSize: 18),
+                  : Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _availableBiometrics.contains(BiometricType.face) 
+                                  ? Icons.face 
+                                  : Icons.fingerprint, 
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                            SizedBox(width: 12),
+                            Text(
+                              'VOTE NOW',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Authenticate with ${BiometricService.getBiometricTypeString(_availableBiometrics)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withOpacity(0.8),
+                          ),
+                        ),
+                      ],
                     ),
             ),
+            
+            SizedBox(height: 16),
+            
+            // Information card about biometric authentication
+            if (_biometricAvailable)
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Color(0xFF2E3192),
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Your ${BiometricService.getBiometricTypeString(_availableBiometrics)} will be required to confirm your vote',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         ),
       ),
