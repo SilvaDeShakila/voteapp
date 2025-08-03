@@ -4,13 +4,15 @@ class UserModel {
   final String uid;
   final String email;
   final DateTime createdAt;
-  final bool isAdmin; // Add this field
+  final bool isAdmin;
+  final String? profilePhotoUrl; // Add this field
 
   UserModel({
     required this.uid,
     required this.email,
     required this.createdAt,
-    this.isAdmin = false, // Default to false
+    this.isAdmin = false,
+    this.profilePhotoUrl, // Add this parameter
   });
 
   // Convert UserModel to a map for Firestore
@@ -20,6 +22,7 @@ class UserModel {
       'email': email,
       'createdAt': createdAt,
       'isAdmin': isAdmin,
+      'profilePhotoUrl': profilePhotoUrl, // Add this field
     };
   }
 
@@ -30,6 +33,7 @@ class UserModel {
       email: map['email'] as String,
       createdAt: (map['createdAt'] as Timestamp).toDate(),
       isAdmin: map['isAdmin'] as bool? ?? false,
+      profilePhotoUrl: map['profilePhotoUrl'] as String?, // Add this field
     );
   }
 }
