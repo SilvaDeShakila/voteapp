@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/election_model.dart';
 import 'create_election_page.dart';
+import 'edit_election_page.dart';
 import '../user_model.dart';
 import 'election_details_page.dart';
 
@@ -203,18 +204,58 @@ class AdminDashboard extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ElectionDetailsPage(
-                          election: election,
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ElectionDetailsPage(
+                              election: election,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Text('VIEW DETAILS'),
+                    ),
+                    PopupMenuButton<String>(
+                      onSelected: (value) async {
+                        if (value == 'edit') {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => EditElectionPage(election: election),
+                            ),
+                          );
+                        } else if (value == 'delete') {
+                          _showDeleteDialog(context, election);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, size: 18),
+                              SizedBox(width: 8),
+                              Text('Edit'),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                  child: Text('VIEW DETAILS'),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete, color: Colors.red, size: 18),
+                              SizedBox(width: 8),
+                              Text('Delete', style: TextStyle(color: Colors.red)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -222,5 +263,65 @@ class AdminDashboard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _showDeleteDialog(BuildContext context, ElectionModel election) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Delete Election'),
+          content: Text('Are you sure you want to delete "${election.title}"? This action cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _deleteElection(context, election);
+              },
+              child: Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteElection(BuildContext context, ElectionModel election) async {
+    try {
+      // Delete the election document
+      await FirebaseFirestore.instance
+          .collection('elections')
+          .doc(election.id)
+          .delete();
+
+      // Delete all voters in the subcollection
+      final votersSnapshot = await FirebaseFirestore.instance
+          .collection('elections')
+          .doc(election.id)
+          .collection('voters')
+          .get();
+
+      for (var doc in votersSnapshot.docs) {
+        await doc.reference.delete();
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Election deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting election: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }

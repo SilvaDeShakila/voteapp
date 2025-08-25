@@ -118,25 +118,37 @@ class _VotingPageState extends State<VotingPage> {
 
       // Use a transaction to update votes atomically
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        // Record the vote in voters subcollection first
-        await FirebaseFirestore.instance
+        // Get the current election document
+        final electionRef = FirebaseFirestore.instance
+            .collection('elections')
+            .doc(widget.election.id);
+        
+        final electionSnapshot = await transaction.get(electionRef);
+        
+        if (!electionSnapshot.exists) {
+          throw Exception('Election not found');
+        }
+        
+        final currentData = electionSnapshot.data()!;
+        final currentVotes = Map<String, int>.from(currentData['votes'] ?? {});
+        
+        // Update the vote count
+        currentVotes[_selectedOption!] = (currentVotes[_selectedOption!] ?? 0) + 1;
+        
+        // Record the vote in voters subcollection
+        final voterRef = FirebaseFirestore.instance
             .collection('elections')
             .doc(widget.election.id)
             .collection('voters')
-            .doc(user.uid)
-            .set({
+            .doc(user.uid);
+            
+        transaction.set(voterRef, {
           'timestamp': FieldValue.serverTimestamp(),
           'option': _selectedOption,
         });
-
-        // Then update the vote count
-        final updatedVotes = Map<String, int>.from(election.votes);
-        updatedVotes[_selectedOption!] = (updatedVotes[_selectedOption!] ?? 0) + 1;
-
-        await FirebaseFirestore.instance
-            .collection('elections')
-            .doc(widget.election.id)
-            .update({'votes': updatedVotes});
+        
+        // Update the election vote counts
+        transaction.update(electionRef, {'votes': currentVotes});
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -330,51 +342,141 @@ class _VotingPageState extends State<VotingPage> {
             SizedBox(height: 24),
             
             // Main voting button with biometric authentication
-            ElevatedButton(
-              onPressed: (_isLoading || !_biometricAvailable || _selectedOption == null) ? null : _castVote,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF2E3192),
-                padding: EdgeInsets.all(20),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 8,
+            Container(
+              width: double.infinity,
+              height: 80,
+              decoration: BoxDecoration(
+                gradient: (_isLoading || !_biometricAvailable || _selectedOption == null)
+                    ? LinearGradient(
+                        colors: [Colors.grey[400]!, Colors.grey[500]!],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : LinearGradient(
+                        colors: [
+                          Color(0xFF667eea), 
+                          Color(0xFF764ba2),
+                          Color(0xFFf093fb),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: (_isLoading || !_biometricAvailable || _selectedOption == null)
+                        ? Colors.grey.withValues(alpha: 0.3)
+                        : Color(0xFF667eea).withValues(alpha: 0.4),
+                    blurRadius: 15,
+                    spreadRadius: 2,
+                    offset: Offset(0, 6),
+                  ),
+                ],
               ),
-              child: _isLoading
-                  ? CircularProgressIndicator(color: Colors.white)
-                  : Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _availableBiometrics.contains(BiometricType.face) 
-                                  ? Icons.face 
-                                  : Icons.fingerprint, 
-                              color: Colors.white,
-                              size: 28,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: (_isLoading || !_biometricAvailable || _selectedOption == null) ? null : _castVote,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: _isLoading
+                        ? Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 3,
+                                  ),
+                                ),
+                                SizedBox(width: 16),
+                                Text(
+                                  'Casting Vote...',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
-                            SizedBox(width: 12),
-                            Text(
-                              'VOTE NOW',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.25),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.3),
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Icon(
+                                  _availableBiometrics.contains(BiometricType.face) 
+                                      ? Icons.face_rounded 
+                                      : Icons.fingerprint, 
+                                  color: Colors.white,
+                                  size: 28,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Authenticate with ${BiometricService.getBiometricTypeString(_availableBiometrics)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.white.withOpacity(0.8),
+                              SizedBox(width: 20),
+                              Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'CAST YOUR VOTE',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      letterSpacing: 1.5,
+                                      shadows: [
+                                        Shadow(
+                                          offset: Offset(0, 1),
+                                          blurRadius: 3,
+                                          color: Colors.black.withValues(alpha: 0.3),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  SizedBox(height: 2),
+                                  Text(
+                                    'Secure • Verified • Anonymous',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.white.withValues(alpha: 0.95),
+                                      fontWeight: FontWeight.w500,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Spacer(),
+                              Container(
+                                padding: EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  Icons.arrow_forward_ios,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
+                  ),
+                ),
+              ),
             ),
             
             SizedBox(height: 16),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../models/election_model.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:math';
+import 'edit_election_page.dart';
 
 class ElectionDetailsPage extends StatelessWidget {
   final ElectionModel election;
@@ -16,6 +16,41 @@ class ElectionDetailsPage extends StatelessWidget {
       appBar: AppBar(
         title: Text('Election Details'),
         backgroundColor: Color(0xFF2E3192),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'edit') {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => EditElectionPage(election: election),
+                  ),
+                );
+                if (result == true) {
+                  // Refresh handled by StreamBuilder
+                }
+              } else if (value == 'delete') {
+                _showDeleteConfirmation(context);
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'edit',
+                child: ListTile(
+                  leading: Icon(Icons.edit),
+                  title: Text('Edit Election'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: ListTile(
+                  leading: Icon(Icons.delete, color: Colors.red),
+                  title: Text('Delete Election', style: TextStyle(color: Colors.red)),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance
@@ -180,50 +215,65 @@ class ElectionDetailsPage extends StatelessWidget {
   }
 
   Widget _buildVotersList(String electionId) {
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(FirebaseAuth.instance.currentUser?.uid)
-          .get(),
-      builder: (context, adminSnapshot) {
-        if (!adminSnapshot.hasData) {
-          return Center(child: CircularProgressIndicator());
-        }
-
-        final isAdmin = adminSnapshot.data?.get('isAdmin') ?? false;
-        if (!isAdmin) {
-          return Text('Only administrators can view voter details');
-        }
-
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('elections')
-              .doc(electionId)
-              .collection('voters')
-              .orderBy('timestamp', descending: true)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Text('Error loading voters: ${snapshot.error}');
-            }
-
-            if (!snapshot.hasData) {
-              return CircularProgressIndicator();
-            }
-
-            final voters = snapshot.data!.docs;
-
-            return Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)
-              ),
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('elections')
+          .doc(electionId)
+          .collection('voters')
+          .orderBy('timestamp', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: EdgeInsets.all(16),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
+                  Icon(Icons.error, color: Colors.red, size: 48),
+                  SizedBox(height: 8),
+                  Text('Error loading voters: ${snapshot.error}'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Loading voters...'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final voters = snapshot.data?.docs ?? [];
+
+        return Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.people, color: Color(0xFF2E3192)),
+                    SizedBox(width: 8),
+                    Text(
                       'Voters (${voters.length})',
                       style: TextStyle(
                         fontSize: 20,
@@ -231,57 +281,105 @@ class ElectionDetailsPage extends StatelessWidget {
                         color: Color(0xFF2E3192),
                       ),
                     ),
+                  ],
+                ),
+              ),
+              if (voters.isEmpty)
+                Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        Icon(Icons.how_to_vote, color: Colors.grey, size: 48),
+                        SizedBox(height: 8),
+                        Text('No votes cast yet', style: TextStyle(color: Colors.grey)),
+                      ],
+                    ),
                   ),
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: NeverScrollableScrollPhysics(),
-                    itemCount: voters.length,
-                    itemBuilder: (context, index) {
-                      final voter = voters[index];
-                      final data = voter.data() as Map<String, dynamic>;
-                      final timestamp = (data['timestamp'] as Timestamp).toDate();
-                      
-                      return FutureBuilder<DocumentSnapshot>(
-                        future: FirebaseFirestore.instance
-                            .collection('users')
-                            .doc(voter.id)
-                            .get(),
-                        builder: (context, userSnapshot) {
-                          if (!userSnapshot.hasData) {
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.grey[300],
-                                child: Icon(Icons.person, color: Colors.grey[600]),
+                )
+              else
+                ListView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  itemCount: voters.length,
+                  itemBuilder: (context, index) {
+                    final voter = voters[index];
+                    final data = voter.data() as Map<String, dynamic>;
+                    final timestamp = data['timestamp'] != null 
+                        ? (data['timestamp'] as Timestamp).toDate()
+                        : DateTime.now();
+                    final option = data['option'] ?? 'Unknown';
+                    
+                    return FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(voter.id)
+                          .get(),
+                      builder: (context, userSnapshot) {
+                        String userEmail = 'Loading...';
+                        String userDisplay = 'Voter';
+                        
+                        if (userSnapshot.connectionState == ConnectionState.waiting) {
+                          userEmail = 'Loading...';
+                        } else if (userSnapshot.hasError) {
+                          userEmail = 'Error loading user';
+                          userDisplay = 'Anonymous Voter';
+                        } else if (userSnapshot.hasData && userSnapshot.data!.exists) {
+                          final userData = userSnapshot.data!.data() as Map<String, dynamic>?;
+                          userEmail = userData?['email'] ?? 'Unknown User';
+                          userDisplay = userEmail;
+                        } else {
+                          userEmail = 'User not found';
+                          userDisplay = 'Anonymous Voter';
+                        }
+                        
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Color(0xFF2E3192),
+                            child: Icon(Icons.person, color: Colors.white),
+                          ),
+                          title: Text(
+                            userDisplay,
+                            style: TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Voted: ${_formatDateTime(timestamp)}',
+                                style: TextStyle(color: Colors.grey[600]),
                               ),
-                              title: Text('Loading...'),
-                            );
-                          }
-
-                          final userEmail = userSnapshot.data?.get('email') ?? 'Unknown';
-                          
-                          return ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Color(0xFF2E3192),
-                              child: Icon(Icons.person, color: Colors.white),
+                              if (userSnapshot.hasError)
+                                Text(
+                                  'User ID: ${voter.id}',
+                                  style: TextStyle(
+                                    color: Colors.grey[500],
+                                    fontSize: 12,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          trailing: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Color(0xFF2E3192).withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(16),
                             ),
-                            title: Text(userEmail),
-                            subtitle: Text('Voted: ${_formatDateTime(timestamp)}'),
-                            trailing: Text(
-                              data['option'],
+                            child: Text(
+                              option,
                               style: TextStyle(
                                 color: Color(0xFF2E3192),
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+            ],
+          ),
         );
       },
     );
@@ -291,7 +389,7 @@ class ElectionDetailsPage extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Color(0xFF2E3192).withOpacity(0.1),
+        color: Color(0xFF2E3192).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
@@ -310,5 +408,67 @@ class ElectionDetailsPage extends StatelessWidget {
 
   String _formatDateTime(DateTime date) {
     return '${_formatDate(date)} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  void _showDeleteConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Delete Election'),
+          content: Text('Are you sure you want to delete "${election.title}"? This action cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _deleteElection(context);
+              },
+              child: Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteElection(BuildContext context) async {
+    try {
+      // Delete the election document
+      await FirebaseFirestore.instance
+          .collection('elections')
+          .doc(election.id)
+          .delete();
+
+      // Delete all voters in the subcollection
+      final votersSnapshot = await FirebaseFirestore.instance
+          .collection('elections')
+          .doc(election.id)
+          .collection('voters')
+          .get();
+
+      for (var doc in votersSnapshot.docs) {
+        await doc.reference.delete();
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Election deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      Navigator.of(context).pop(); // Go back to admin dashboard
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting election: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 }
